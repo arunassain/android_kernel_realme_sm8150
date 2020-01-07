@@ -138,7 +138,13 @@ do {                                                    \
 				  SND_JACK_BTN_2 | SND_JACK_BTN_3 | \
 				  SND_JACK_BTN_4 | SND_JACK_BTN_5)
 #define OCP_ATTEMPT 20
+#ifndef VENDOR_EDIT
+/* Zhao.Pan@PSW.MM.AudioDriver.HeadsetDet, 2018/12/06,
+ * Modify for headphone detect. */
 #define HS_DETECT_PLUG_TIME_MS (3 * 1000)
+#else
+#define HS_DETECT_PLUG_TIME_MS (5 * 1000)
+#endif /* VENDOR_EDIT */
 #define SPECIAL_HS_DETECT_TIME_MS (2 * 1000)
 #define MBHC_BUTTON_PRESS_THRESHOLD_MIN 250
 #define GND_MIC_SWAP_THRESHOLD 4
@@ -423,12 +429,28 @@ enum mbhc_moisture_rref {
 	R_184_KOHM,
 };
 
+#ifdef VENDOR_EDIT
+/*Zhao.Pan@PSW.MM.AudioDriver.Headset, 2018/11/07, Add audio switch max20328*/
+enum usbc_switch_type {
+    NO_USBC_SWITCH = 0,
+    FSA4480,
+    MAX20328,
+    USBC_SWITCH_MAX = MAX20328,
+};
+#endif /* VENDOR_EDIT */
+
 struct wcd_mbhc_config {
 	bool read_fw_bin;
 	void *calibration;
 	bool detect_extn_cable;
 	bool mono_stero_detection;
 	bool (*swap_gnd_mic)(struct snd_soc_codec *codec, bool active);
+	#ifdef VENDOR_EDIT
+	/* Zhao.Pan@PSW.MM.AudioDriver.HeadsetDet, 2019/05/29 *
+	 * Control to connect L and R to reduce POP */
+	bool (*set_LR_cnt)(struct snd_soc_codec *codec, bool active,
+			enum usbc_switch_type type);
+	#endif /* VENDOR_EDIT */
 	bool hs_ext_micbias;
 	bool gnd_det_en;
 	int key_code[WCD_MBHC_KEYCODE_NUM];
@@ -438,6 +460,10 @@ struct wcd_mbhc_config {
 	int anc_micbias;
 	bool enable_anc_mic_detect;
 	u32 enable_usbc_analog;
+	#ifdef VENDOR_EDIT
+	/*Zhao.Pan@PSW.MM.AudioDriver.Headset, 2018/11/07, Add audio switch max20328*/
+	enum usbc_switch_type switch_type;
+	#endif /* VENDOR_EDIT */
 	bool moisture_duty_cycle_en;
 };
 
@@ -583,6 +609,15 @@ struct wcd_mbhc {
 
 	/* Work to correct accessory type */
 	struct work_struct correct_plug_swch;
+	#ifdef VENDOR_EDIT
+	/* Le.Li@PSW.MM.AudioDriver.HeadsetDet, 2018/02/22,
+	 * Add for headset detect.
+	 */
+	struct delayed_work hp_detect_work;
+	/* Zhao.Pan@PSW.MM.AudioDriver.HeadsetDet.2311591, 2019/09/03,
+	 * solve AP sleep and not execute mbhc irq function  */
+	int work_count;
+	#endif /* VENDOR_EDIT */
 	struct notifier_block nblock;
 
 	struct wcd_mbhc_register *wcd_mbhc_regs;
@@ -600,8 +635,14 @@ struct wcd_mbhc {
 
 	struct wcd_mbhc_fn *mbhc_fn;
 	bool force_linein;
+	#ifndef VENDOR_EDIT
+	/*Zhao.Pan@PSW.MM.AudioDriver.Headset, 2018/11/07, Add audio switch max20328*/
 	struct device_node *fsa_np;
 	struct notifier_block fsa_nb;
+	#else
+	struct device_node *switch_np;
+	struct notifier_block switch_nb;
+	#endif
 };
 
 void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,

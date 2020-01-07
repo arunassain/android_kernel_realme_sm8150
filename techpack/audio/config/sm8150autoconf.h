@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  */
 
+ #ifndef VENDOR_EDIT
+/*Le.Li@PSW.MM.AudioDriver.SmartPA, 2018/09/23, Add for Max98937*/
+#define VENDOR_EDIT
+#endif /* VENDOR_EDIT */
 #define CONFIG_PINCTRL_WCD 1
 #define CONFIG_AUDIO_EXT_CLK 1
 #define CONFIG_SND_SOC_WCD9XXX_V2 1
@@ -50,4 +54,10 @@
 #define CONFIG_SND_SOC_MSM_STUB 1
 #define CONFIG_MSM_AVTIMER 1
 #define CONFIG_SND_SOC_MSM_HDMI_CODEC_RX 1
+#ifdef VENDOR_EDIT
+/*Le.Li@PSW.MM.AudioDriver.SmartPA, 2018/09/23, Add for Max98937*/
+#define CONFIG_SND_SOC_MAX98937 1
+/*Le.Li@PSW.MM.AudioDriver.Wakeup, 2019/03/25, Add for third party Wakeup*/
+#define CONFIG_SND_LSM_APE_THIRD_PARTY 1
+#endif /* VENDOR_EDIT */
 #define CONFIG_VOICE_MHI 1

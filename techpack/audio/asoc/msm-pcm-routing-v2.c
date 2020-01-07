@@ -1056,6 +1056,8 @@ static struct cal_block_data *msm_routing_find_topology_by_path(int path,
 	return NULL;
 }
 
+#ifndef VENDOR_EDIT
+//Le.Li@MultiMedia.AudioDriver.Codec, 2019/04/02, Add for aispeech wakeup
 static struct cal_block_data *msm_routing_find_topology(int path,
 							int app_type,
 							int acdb_id,
@@ -1151,6 +1153,103 @@ done:
 	pr_debug("%s: Using topology %d\n", __func__, topology);
 	return topology;
 }
+#else /* VENDOR_EDIT */
+static struct cal_block_data *msm_routing_find_topology(int path,
+							int app_type,
+							int acdb_id,
+							int cal_index,
+							bool exact)
+{
+	struct list_head *ptr, *next;
+	struct cal_block_data *cal_block = NULL;
+	struct audio_cal_info_adm_top *cal_info;
+
+	pr_debug("%s\n", __func__);
+
+	list_for_each_safe(ptr, next,
+		&cal_data[cal_index]->cal_blocks) {
+
+		cal_block = list_entry(ptr,
+			struct cal_block_data, list);
+
+		if (cal_utils_is_cal_stale(cal_block))
+			continue;
+
+		cal_info = (struct audio_cal_info_adm_top *)
+			cal_block->cal_info;
+		if ((cal_info->path == path)  &&
+			(cal_info->app_type == app_type) &&
+			(cal_info->acdb_id == acdb_id)) {
+			return cal_block;
+		}
+	}
+	pr_debug("%s: Can't find topology for path %d, app %d, "
+		 "acdb_id %d %s\n",  __func__, path, app_type, acdb_id,
+		 exact ? "fail" : "defaulting to search by path");
+	return exact ? NULL : msm_routing_find_topology_by_path(path,
+								cal_index);
+}
+
+static int msm_routing_find_topology_on_index(int session_type, int app_type,
+					      int acdb_dev_id,  int idx,
+					      bool exact)
+{
+	int topology = -EINVAL;
+	struct cal_block_data *cal_block = NULL;
+
+	mutex_lock(&cal_data[idx]->lock);
+	cal_block = msm_routing_find_topology(session_type, app_type,
+					      acdb_dev_id, idx, exact);
+	if (cal_block != NULL) {
+		topology = ((struct audio_cal_info_adm_top *)
+			    cal_block->cal_info)->topology;
+	}
+	mutex_unlock(&cal_data[idx]->lock);
+	return topology;
+}
+
+/*
+ * Retrieving cal_block will mark cal_block as stale.
+ * Hence it cannot be reused or resent unless the flag
+ * is reset.
+ */
+static int msm_routing_get_adm_topology(int fedai_id, int session_type,
+					int be_id)
+{
+	int topology = NULL_COPP_TOPOLOGY;
+	int app_type = 0, acdb_dev_id = 0;
+
+	pr_debug("%s: fedai_id %d, session_type %d, be_id %d\n",
+	       __func__, fedai_id, session_type, be_id);
+
+	if (cal_data == NULL)
+		goto done;
+
+	app_type = fe_dai_app_type_cfg[fedai_id][session_type][be_id].app_type;
+	acdb_dev_id =
+		fe_dai_app_type_cfg[fedai_id][session_type][be_id].acdb_dev_id;
+	pr_debug("%s: Check for exact LSM topology\n", __func__);
+	topology = msm_routing_find_topology_on_index(session_type,
+					       app_type,
+					       acdb_dev_id,
+					       ADM_LSM_TOPOLOGY_CAL_TYPE_IDX,
+					       true /*exact*/);
+	if (topology < 0) {
+		pr_debug("%s: Check for compatible topology\n", __func__);
+		topology = msm_routing_find_topology_on_index(session_type,
+						      app_type,
+						      acdb_dev_id,
+						      ADM_TOPOLOGY_CAL_TYPE_IDX,
+						      false /*exact*/);
+		if (topology < 0)
+			topology = NULL_COPP_TOPOLOGY;
+	}
+
+done:
+	pr_debug("%s: Using topology %d\n", __func__, topology);
+	return topology;
+}
+#endif /* VENDOR_EDIT */
 
 static uint8_t is_be_dai_extproc(int be_dai)
 {
@@ -14143,6 +14242,13 @@ static const struct snd_kcontrol_new sbus_6_rx_port_mixer_controls[] = {
 	MSM_BACKEND_DAI_SLIMBUS_6_RX,
 	MSM_BACKEND_DAI_SLIMBUS_9_TX, 1, 0, msm_routing_get_port_mixer,
 	msm_routing_put_port_mixer),
+#ifdef VENDOR_EDIT
+	/* Le.Li@PSW.MM.AudioDriver.Machine, 2018/04/02, Add for MMI test */
+	SOC_DOUBLE_EXT("SLIM_0_TX_MMI", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_6_RX,
+	MSM_BACKEND_DAI_SLIMBUS_0_TX, 1, 0, msm_routing_get_port_mixer,
+	msm_routing_put_port_mixer),
+#endif
 };
 
 static const struct snd_kcontrol_new bt_sco_rx_port_mixer_controls[] = {
@@ -14294,6 +14400,13 @@ static const struct snd_kcontrol_new quat_mi2s_rx_port_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
 	MSM_BACKEND_DAI_SLIMBUS_8_TX, 1, 0, msm_routing_get_port_mixer,
 	msm_routing_put_port_mixer),
+	#ifdef VENDOR_EDIT
+	/* Le.Li@PSW.MM.AudioDriver.Machine, 2018/04/02, Add for MMI test */
+	SOC_DOUBLE_EXT("SLIM_0_TX_MMI", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
+	MSM_BACKEND_DAI_SLIMBUS_0_TX, 1, 0, msm_routing_get_port_mixer,
+	msm_routing_put_port_mixer),
+	#endif /* VENDOR_EDIT */
 };
 
 static const struct snd_kcontrol_new quin_mi2s_rx_port_mixer_controls[] = {
@@ -19639,6 +19752,14 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 		&ext_ec_ref_mux_ul29),
 };
 
+#ifdef VENDOR_EDIT
+/* Le.Li@MultiMedia.AudioDriver.Machine, 2018/04/02, Add for MMI test */
+static const struct snd_soc_dapm_route intercon_oppo_lookback[] =
+{
+	{"QUAT_MI2S_RX_DL_HL", "Switch", "SLIM0_DL_HL"},
+};
+#endif /* VENDOR_EDIT */
+
 static const struct snd_soc_dapm_route intercon[] = {
 	{"PRI_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"PRI_RX Audio Mixer", "MultiMedia2", "MM_DL2"},
@@ -22120,7 +22241,10 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TERT_MI2S_RX_DL_HL", "Switch", "TERT_MI2S_DL_HL"},
 	{"TERT_MI2S_RX", NULL, "TERT_MI2S_RX_DL_HL"},
 
+	#ifndef VENDOR_EDIT
+	/* Le.Li@MultiMedia.AudioDriver.Machine, 2018/04/02, Add for MMI test */
 	{"QUAT_MI2S_RX_DL_HL", "Switch", "QUAT_MI2S_DL_HL"},
+	#endif /* VENDOR_EDIT */
 	{"QUAT_MI2S_RX", NULL, "QUAT_MI2S_RX_DL_HL"},
 	{"QUIN_MI2S_RX_DL_HL", "Switch", "QUIN_MI2S_DL_HL"},
 	{"QUIN_MI2S_RX", NULL, "QUIN_MI2S_RX_DL_HL"},
@@ -22881,6 +23005,11 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_MI2S_RX Port Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"QUIN_MI2S_RX Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"QUIN_MI2S_RX", NULL, "QUIN_MI2S_RX Port Mixer"},
+	#ifdef VENDOR_EDIT
+	/* Le.Li@PSW.MM.AudioDriver.Machine, 2018/04/02, Add for MMI test */
+	{"SLIMBUS_6_RX Port Mixer", "SLIM_0_TX_MMI", "SLIMBUS_0_TX"},
+	{"QUAT_MI2S_RX Port Mixer", "SLIM_0_TX_MMI", "SLIMBUS_0_TX"},
+	#endif /* VENDOR_EDIT */
 
 	/* Backend Enablement */
 
@@ -23821,6 +23950,11 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 {
 	snd_soc_dapm_new_controls(&platform->component.dapm, msm_qdsp6_widgets,
 			   ARRAY_SIZE(msm_qdsp6_widgets));
+	#ifdef VENDOR_EDIT
+	/* Le.Li@MultiMedia.AudioDriver.Machine, 2018/04/02, Add for MMI test */
+	snd_soc_dapm_add_routes(&platform->component.dapm, intercon_oppo_lookback,
+			   ARRAY_SIZE(intercon_oppo_lookback));
+	#endif /* VENDOR_EDIT */
 	snd_soc_dapm_add_routes(&platform->component.dapm, intercon,
 		ARRAY_SIZE(intercon));
 
