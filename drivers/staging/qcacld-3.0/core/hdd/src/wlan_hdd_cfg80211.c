@@ -11636,6 +11636,178 @@ static int wlan_hdd_process_wake_lock_stats(struct hdd_context *hdd_ctx)
 }
 #endif
 
+//#ifdef VENDOR_EDIT
+//Lei.Zhang@PSW.CN.WiFi.Hardware.Power.2063020, 2019/05/31
+//Add power_stats for WiFi FW wakeup/suspend time statistics
+#define POWER_STATS_BUF_LEN	256
+
+struct power_stats_priv_ps {
+	struct power_stats_response power_stats;
+};
+
+static void wlan_hdd_power_stats_dealloc(void *priv)
+{
+	struct power_stats_priv_ps *stats = priv;
+
+	qdf_mem_free(stats->power_stats.debug_registers);
+	stats->power_stats.debug_registers = NULL;
+}
+
+static void wlan_hdd_get_power_stats_cb(struct power_stats_response *response,
+				    void *context)
+{
+	struct osif_request *request;
+	struct power_stats_priv_ps *priv;
+	uint32_t *debug_registers;
+	uint32_t debug_registers_len;
+
+	hdd_enter();
+
+	request = osif_request_get(context);
+	if (!request) {
+		hdd_err("Obsolete request");
+		return;
+	}
+
+	priv = osif_request_priv(request);
+
+	/* copy fixed-sized data */
+	priv->power_stats = *response;
+
+	/* copy variable-size data */
+	if (response->num_debug_register) {
+		debug_registers_len = (sizeof(response->debug_registers[0]) *
+				       response->num_debug_register);
+		debug_registers = qdf_mem_malloc(debug_registers_len);
+		priv->power_stats.debug_registers = debug_registers;
+		if (debug_registers) {
+			qdf_mem_copy(debug_registers,
+				     response->debug_registers,
+				     debug_registers_len);
+		} else {
+			hdd_err("Power stats memory alloc fails!");
+			priv->power_stats.num_debug_register = 0;
+		}
+	}
+	osif_request_complete(request);
+	osif_request_put(request);
+	hdd_exit();
+}
+
+static int wlan_hdd_get_power_stats(struct hdd_context *hdd_ctx, char *ps, ssize_t len)
+{
+	QDF_STATUS status;
+	struct power_stats_response *chip_power_stats;
+	ssize_t ret_cnt = 0;
+	void *cookie;
+	struct osif_request *request;
+	struct power_stats_priv_ps *priv;
+	static const struct osif_request_params params = {
+		.priv_size = sizeof(*priv),
+		.timeout_ms = WLAN_WAIT_TIME_STATS,
+		.dealloc = wlan_hdd_power_stats_dealloc,
+	};
+	unsigned char buf[POWER_STATS_BUF_LEN] = {0};
+
+	hdd_enter();
+
+	ret_cnt = wlan_hdd_validate_context(hdd_ctx);
+	if (ret_cnt)
+		return ret_cnt;
+
+	request = osif_request_alloc(&params);
+	if (!request) {
+		hdd_err("Request allocation failure");
+		return -ENOMEM;
+	}
+	cookie = osif_request_cookie(request);
+
+	status = sme_power_debug_stats_req(hdd_ctx->mac_handle,
+					   wlan_hdd_get_power_stats_cb,
+					   cookie);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("chip power stats request failed");
+		goto cleanup;
+	}
+
+	ret_cnt = osif_request_wait_for_response(request);
+	if (ret_cnt) {
+		hdd_err("Target response timed out Power stats");
+		goto cleanup;
+	}
+	priv = osif_request_priv(request);
+	chip_power_stats = &priv->power_stats;
+
+	scnprintf(buf, POWER_STATS_BUF_LEN, "%d:%d", chip_power_stats->cumulative_sleep_time_ms, chip_power_stats->cumulative_total_on_time_ms);
+	if (strlen(buf) < len) {
+		memcpy(ps, buf, strlen(buf));
+	} else {
+		ret_cnt = -ENOMEM;
+	}
+
+cleanup:
+	osif_request_put(request);
+	return ret_cnt;
+}
+
+static int wlan_hdd_send_power_stats(struct hdd_context *hdd_ctx, char *ps)
+{
+	struct sk_buff *skb;
+	uint32_t nl_buf_len;
+
+	hdd_enter();
+
+	nl_buf_len = NLMSG_HDRLEN;
+	nl_buf_len += sizeof(uint32_t) + POWER_STATS_BUF_LEN + 1 + NLA_HDRLEN*2;
+
+	skb = cfg80211_vendor_cmd_alloc_reply_skb(hdd_ctx->wiphy, nl_buf_len);
+	if (!skb) {
+		hdd_err("wlan_hdd_cfg80211_send_power_stats alloc skb failed");
+		return -ENOMEM;
+	}
+
+	if (nla_put_u32(skb, OPPO_WLAN_VENDOR_ATTR_PS_REQ, 0x19900102)) {
+		hdd_err("nla put failure OPPO_WLAN_VENDOR_ATTR_PS_REQ");
+		goto nla_put_failure;
+	}
+
+	if (nla_put_string(skb, OPPO_WLAN_VENDOR_ATTR_PS_RES, ps)) {
+		hdd_err("nla put failure OPPO_WLAN_VENDOR_ATTR_PS_RES");
+		goto nla_put_failure;
+	}
+
+	if(cfg80211_vendor_cmd_reply(skb)) {
+		hdd_err("send response error");
+		goto nla_put_failure;
+	}
+
+	hdd_exit();
+
+	return 0;
+
+nla_put_failure:
+	kfree_skb(skb);
+	return -EINVAL;
+}
+
+static int wlan_hdd_cfg80211_get_power_stats(struct hdd_context *hdd_ctx)
+{
+	char ps[POWER_STATS_BUF_LEN] = {0};
+
+	if (wlan_hdd_get_power_stats(hdd_ctx, ps, POWER_STATS_BUF_LEN)) {
+		hdd_err("wlan_hdd_get_power_stats fail");
+		return -EINVAL;
+	}
+
+	if (wlan_hdd_send_power_stats(hdd_ctx, ps)) {
+		hdd_err("wlan_hdd_cfg80211_send_power_stats fail");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+//#endif /* VENDOR_EDIT */
+
 /**
  * __wlan_hdd_cfg80211_get_wakelock_stats() - gets wake lock stats
  * @wiphy: wiphy pointer
@@ -11657,6 +11829,17 @@ static int __wlan_hdd_cfg80211_get_wakelock_stats(struct wiphy *wiphy,
 {
 	int ret;
 	struct hdd_context *hdd_ctx = wiphy_priv(wiphy);
+	//#ifdef VENDOR_EDIT
+        //Lei.Zhang@PSW.CN.WiFi.Hardware.Power.2063020, 2019/05/31
+        //Add power_stats for WiFi FW wakeup/suspend time statistics
+	int32_t status;
+	struct nlattr* tb[OPPO_WLAN_VENDOR_ATTR_PS_MAX + 1];
+
+	static const struct nla_policy oppo_attr_power_stats_policy[OPPO_WLAN_VENDOR_ATTR_PS_MAX + 1] = {
+		[OPPO_WLAN_VENDOR_ATTR_PS_REQ] = {.type = NLA_U32},
+		[OPPO_WLAN_VENDOR_ATTR_PS_RES] = {.type = NLA_U8},
+	};
+	//#endif /* VENDOR_EDIT */
 
 	hdd_enter();
 
@@ -11669,7 +11852,21 @@ static int __wlan_hdd_cfg80211_get_wakelock_stats(struct wiphy *wiphy,
 	if (0 != ret)
 		return -EINVAL;
 
+	//#ifdef VENDOR_EDIT
+        //Lei.Zhang@PSW.CN.WiFi.Hardware.Power.2063020, 2019/05/31
+        //Add power_stats for WiFi FW wakeup/suspend time statistics
+	status = wlan_cfg80211_nla_parse(tb, OPPO_WLAN_VENDOR_ATTR_PS_MAX,
+					data, data_len, oppo_attr_power_stats_policy);
+
+	if (!status && tb[OPPO_WLAN_VENDOR_ATTR_PS_REQ] && nla_get_u32(tb[OPPO_WLAN_VENDOR_ATTR_PS_REQ]) == 0x20170827) {
+		ret = wlan_hdd_cfg80211_get_power_stats(hdd_ctx);
+		goto exit_with_ret;
+	}
+	//#endif /* VENDOR_EDIT */
+
 	ret = wlan_hdd_process_wake_lock_stats(hdd_ctx);
+
+exit_with_ret:
 	hdd_exit();
 	return ret;
 }

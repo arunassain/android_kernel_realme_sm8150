@@ -336,6 +336,21 @@
  *	enum qca_wlan_vendor_attr_beacon_reporting_params.
  */
 
+#ifdef VENDOR_EDIT
+//Lei.Zhang@PSW.CN.WiFi.Hardware.Power.2063020, 2019/07/24 //Add power_stats for WiFi FW wakeup/suspend time statistics
+enum oppo_vendor_power_stats_attr {
+	OPPO_WLAN_VENDOR_ATTR_PS_UNSPECIFIC = 0,
+        /* cannot be use due to nla_parse() */
+	OPPO_WLAN_VENDOR_ATTR_PS_REQ,
+	OPPO_WLAN_VENDOR_ATTR_PS_RES,
+
+	/* add attr above */
+	OPPO_WLAN_VENDOR_ATTR_PS_LAST,
+	OPPO_WLAN_VENDOR_ATTR_PS_MAX =
+		OPPO_WLAN_VENDOR_ATTR_PS_LAST - 1,
+};
+#endif /* VENDOR_EDIT */
+
 enum qca_nl80211_vendor_subcmds {
 	QCA_NL80211_VENDOR_SUBCMD_UNSPEC = 0,
 	QCA_NL80211_VENDOR_SUBCMD_TEST = 1,
