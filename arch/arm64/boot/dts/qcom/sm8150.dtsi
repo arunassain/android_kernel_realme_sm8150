@@ -574,7 +574,12 @@
 			compatible = "android,firmware";
 			shared_meta: vbmeta {
 				compatible = "android,vbmeta";
-				parts = "vbmeta,boot,system,vendor,dtbo,odm";
+			//#ifdef VENDOR_EDIT
+			//zhye@BSP.Sensor, modify for bring up, 20190715
+				parts = "vbmeta,boot,system,vendor,dtbo";
+			//#else
+			//	parts = "vbmeta,boot,system,vendor,dtbo,odm";
+			//#endif
 			};
 			android_q_fstab: fstab {
 				compatible = "android,fstab";
@@ -586,14 +591,17 @@
 					fsmgr_flags = "wait,slotselect,avb";
 					status = "ok";
 				};
-				odm {
-					compatible = "android,odm";
-					dev = "/dev/block/platform/soc/8804000.sdhci/by-name/odm";
-					type = "ext4";
-					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait,slotselect,avb";
-					status = "ok";
-				};
+			//#ifdef VENDOR_EDIT
+			//zhye@BSP.Sensor, delete for bring up, 20190715
+			//	odm {
+			//		compatible = "android,odm";
+			//		dev = "/dev/block/platform/soc/8804000.sdhci/by-name/odm";
+			//		type = "ext4";
+			//		mnt_flags = "ro,barrier=1,discard";
+			//		fsmgr_flags = "wait,slotselect,avb";
+			//		status = "ok";
+			//	};
+			//#endif
 			};
 		};
 	};
@@ -762,7 +770,12 @@
 			alloc-ranges = <0x0 0x00000000 0x0 0xffffffff>;
 			reusable;
 			alignment = <0x0 0x400000>;
-			size = <0x0 0xA000000>;
+			/* #ifdef VENDOR_EDIT */
+			/* oujinrong@BSP.Fingerprint.Secure, 2019/06/19, reduce secure_display memory */
+			size = <0x0 0x5C00000>;
+			/* #else */
+			/* size = <0x0 0xA000000>; */
+			/* #endif VENDOR_EDIT */
 		};
 
 		dump_mem: mem_dump_region {
