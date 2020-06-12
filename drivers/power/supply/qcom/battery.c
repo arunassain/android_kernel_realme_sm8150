@@ -69,6 +69,7 @@ struct pl_data {
 	struct votable		*cp_ilim_votable;
 	struct votable		*cp_disable_votable;
 	struct votable		*fcc_main_votable;
+	struct votable		*cp_slave_disable_votable;
 	struct delayed_work	status_change_work;
 	struct work_struct	pl_disable_forever_work;
 	struct work_struct	pl_taper_work;
@@ -80,6 +81,7 @@ struct pl_data {
 	struct power_supply	*usb_psy;
 	struct power_supply	*dc_psy;
 	struct power_supply	*cp_master_psy;
+	struct power_supply	*cp_slave_psy;
 	int			charge_type;
 	int			total_settled_ua;
 	int			pl_settled_ua;
@@ -103,6 +105,8 @@ struct pl_data {
 	int			taper_entry_fv;
 	int			main_fcc_max;
 	u32			float_voltage_uv;
+	int			fcc_step_size_ua;
+	int			fcc_step_delay_ms;
 };
 
 struct pl_data *the_chip;
@@ -524,8 +528,8 @@ ATTRIBUTE_GROUPS(batt_class);
  *  FCC  *
  **********/
 #define EFFICIENCY_PCT	80
-#define FCC_STEP_SIZE_UA 100000
-#define FCC_STEP_UPDATE_DELAY_MS 1000
+#define DEFAULT_FCC_STEP_SIZE_UA 100000
+#define DEFAULT_FCC_STEP_UPDATE_DELAY_MS 1000
 #define STEP_UP 1
 #define STEP_DOWN -1
 static void get_fcc_split(struct pl_data *chip, int total_ua,
@@ -648,21 +652,27 @@ static void get_fcc_stepper_params(struct pl_data *chip, int main_fcc_ua,
 			goto skip_fcc_step_update;
 		}
 	}
+
+	if (!chip->fcc_step_size_ua) {
+		pr_err("Invalid fcc stepper step size, value 0\n");
+		return;
+	}
+
 	/* Read current FCC of main charger */
 	chip->main_fcc_ua = get_effective_result(chip->fcc_main_votable);
 	chip->main_step_fcc_dir = (main_fcc_ua > chip->main_fcc_ua) ?
 				STEP_UP : STEP_DOWN;
 	chip->main_step_fcc_count = abs((main_fcc_ua - chip->main_fcc_ua) /
-				FCC_STEP_SIZE_UA);
-	chip->main_step_fcc_residual = abs((main_fcc_ua - chip->main_fcc_ua) %
-				FCC_STEP_SIZE_UA);
+				chip->fcc_step_size_ua);
+	chip->main_step_fcc_residual = (main_fcc_ua - chip->main_fcc_ua) %
+				chip->fcc_step_size_ua;
 
 	chip->parallel_step_fcc_dir = (parallel_fcc_ua > chip->slave_fcc_ua) ?
 				STEP_UP : STEP_DOWN;
 	chip->parallel_step_fcc_count = abs((parallel_fcc_ua -
-				chip->slave_fcc_ua) / FCC_STEP_SIZE_UA);
-	chip->parallel_step_fcc_residual = abs((parallel_fcc_ua -
-				chip->slave_fcc_ua)) % FCC_STEP_SIZE_UA;
+				chip->slave_fcc_ua) / chip->fcc_step_size_ua);
+	chip->parallel_step_fcc_residual = (parallel_fcc_ua -
+				chip->slave_fcc_ua) % chip->fcc_step_size_ua;
 
 skip_fcc_step_update:
 	if (chip->parallel_step_fcc_count || chip->parallel_step_fcc_residual
@@ -800,7 +810,9 @@ static int pl_fcc_vote_callback(struct votable *votable, void *data,
 {
 	struct pl_data *chip = data;
 	int master_fcc_ua = total_fcc_ua, slave_fcc_ua = 0;
+	int main_fcc_ua = 0, cp_fcc_ua = 0, fcc_thr_ua = 0, rc;
 	union power_supply_propval pval = {0, };
+	bool is_cc_mode = false;
 
 	if (total_fcc_ua < 0)
 		return 0;
@@ -811,22 +823,65 @@ static int pl_fcc_vote_callback(struct votable *votable, void *data,
 	if (!chip->cp_disable_votable)
 		chip->cp_disable_votable = find_votable("CP_DISABLE");
 
-	if (chip->cp_disable_votable) {
-		if (cp_get_parallel_mode(chip, PARALLEL_OUTPUT_MODE)
-					== POWER_SUPPLY_PL_OUTPUT_VPH) {
-			power_supply_get_property(chip->cp_master_psy,
+	if (!chip->cp_master_psy)
+		chip->cp_master_psy =
+			power_supply_get_by_name("charge_pump_master");
+
+	if (!chip->cp_slave_psy)
+		chip->cp_slave_psy = power_supply_get_by_name("cp_slave");
+
+	if (!chip->cp_slave_disable_votable)
+		chip->cp_slave_disable_votable =
+			find_votable("CP_SLAVE_DISABLE");
+
+	if (!chip->usb_psy)
+		chip->usb_psy = power_supply_get_by_name("usb");
+
+	if (chip->usb_psy) {
+		rc = power_supply_get_property(chip->usb_psy,
+					POWER_SUPPLY_PROP_ADAPTER_CC_MODE,
+					&pval);
+		if (rc < 0)
+			pr_err("Couldn't get PPS CC mode status rc=%d\n", rc);
+		else
+			is_cc_mode = pval.intval;
+	}
+
+	if (chip->cp_master_psy) {
+		rc = power_supply_get_property(chip->cp_master_psy,
 					POWER_SUPPLY_PROP_MIN_ICL, &pval);
+		if (rc < 0)
+			pr_err("Couldn't get MIN ICL threshold rc=%d\n", rc);
+		else
+			fcc_thr_ua = is_cc_mode ? (3 * pval.intval) :
+							(4 * pval.intval);
+	}
+
+	if (chip->fcc_main_votable)
+		main_fcc_ua =
+			get_effective_result_locked(chip->fcc_main_votable);
+
+	if (main_fcc_ua < 0)
+		main_fcc_ua = 0;
+
+	cp_fcc_ua = total_fcc_ua - main_fcc_ua;
+	if (cp_fcc_ua > 0) {
+		if (chip->cp_slave_psy && chip->cp_slave_disable_votable) {
 			/*
-			 * With VPH output configuration ILIM is configured
-			 * independent of battery FCC, disable CP here if FCC/2
-			 * falls below MIN_ICL supported by CP.
+			 * Disable Slave CP if FCC share
+			 * falls below threshold.
 			 */
-			if ((total_fcc_ua / 2) < pval.intval)
-				vote(chip->cp_disable_votable, FCC_VOTER,
-						true, 0);
-			else
-				vote(chip->cp_disable_votable, FCC_VOTER,
-						false, 0);
+			vote(chip->cp_slave_disable_votable, FCC_VOTER,
+				(cp_fcc_ua < fcc_thr_ua), 0);
+		}
+
+		if (chip->cp_disable_votable) {
+			/*
+			 * Disable Master CP if FCC share
+			 * falls below 2 * min ICL threshold.
+			 */
+			vote(chip->cp_disable_votable, FCC_VOTER,
+			     (cp_fcc_ua < (2 * pval.intval)), 0);
 		}
 	}
 
@@ -845,10 +900,6 @@ static int pl_fcc_vote_callback(struct votable *votable, void *data,
 
 	rerun_election(chip->pl_disable_votable);
 	/* When FCC changes, trigger psy changed event for CC mode */
-	if (!chip->cp_master_psy)
-		chip->cp_master_psy =
-			power_supply_get_by_name("charge_pump_master");
-
 	if (chip->cp_master_psy)
 		power_supply_changed(chip->cp_master_psy);
 
@@ -912,19 +963,19 @@ static void fcc_stepper_work(struct work_struct *work)
 	}
 
 	if (chip->main_step_fcc_count) {
-		main_fcc += (FCC_STEP_SIZE_UA * chip->main_step_fcc_dir);
+		main_fcc += (chip->fcc_step_size_ua * chip->main_step_fcc_dir);
 		chip->main_step_fcc_count--;
-		reschedule_ms = FCC_STEP_UPDATE_DELAY_MS;
+		reschedule_ms = chip->fcc_step_delay_ms;
 	} else if (chip->main_step_fcc_residual) {
 		main_fcc += chip->main_step_fcc_residual;
 		chip->main_step_fcc_residual = 0;
 	}
 
 	if (chip->parallel_step_fcc_count) {
-		parallel_fcc += (FCC_STEP_SIZE_UA *
+		parallel_fcc += (chip->fcc_step_size_ua *
 			chip->parallel_step_fcc_dir);
 		chip->parallel_step_fcc_count--;
-		reschedule_ms = FCC_STEP_UPDATE_DELAY_MS;
+		reschedule_ms = chip->fcc_step_delay_ms;
 	} else if (chip->parallel_step_fcc_residual) {
 		parallel_fcc += chip->parallel_step_fcc_residual;
 		chip->parallel_step_fcc_residual = 0;
@@ -1758,7 +1809,13 @@ static int pl_determine_initial_status(struct pl_data *chip)
 
 static void pl_config_init(struct pl_data *chip, int smb_version)
 {
+	chip->fcc_step_size_ua = DEFAULT_FCC_STEP_SIZE_UA;
+	chip->fcc_step_delay_ms = DEFAULT_FCC_STEP_UPDATE_DELAY_MS;
+
 	switch (smb_version) {
+	case PM8150B_SUBTYPE:
+		chip->fcc_step_delay_ms = 100;
+		break;
 	case PMI8998_SUBTYPE:
 	case PM660_SUBTYPE:
 		chip->wa_flags = AICL_RERUN_WA_BIT | FORCE_INOV_DISABLE_BIT;

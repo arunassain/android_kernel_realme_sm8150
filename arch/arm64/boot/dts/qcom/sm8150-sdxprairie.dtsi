@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -33,6 +33,7 @@
 	esoc-0 = <&mdm3>;
 	qcom,smmu-cfg = <0x1d>;
 	qcom,addr-win = <0x0 0x20000000 0x0 0x2fffffff>;
+	mhi,sfr-support;
 
 	/* controller noc frequency scaling configuration */
 	qcom,msm-bus,name = "mhi0";
@@ -104,6 +105,69 @@
 		};
 	};
 
+	mhi_events {
+		mhi_event@5 {
+			mhi,chan = <100>;
+			mhi,hw-ev;
+		};
+
+		mhi_event@6 {
+			mhi,chan = <101>;
+			mhi,hw-ev;
+			mhi,client-manage;
+		};
+
+		mhi_event@7 {
+			mhi,chan = <102>;
+			mhi,hw-ev;
+			mhi,client-manage;
+			mhi,offload;
+		};
+
+		mhi_event@8 {
+			mhi,chan = <103>;
+			mhi,hw-ev;
+		};
+
+		mhi_event@9 {
+			mhi,chan = <105>;
+			mhi,hw-ev;
+			mhi,client-manage;
+			mhi,offload;
+		};
+
+		mhi_event@10 {
+			mhi,chan = <106>;
+			mhi,hw-ev;
+			mhi,client-manage;
+			mhi,offload;
+		};
+
+		mhi_event@11 {
+			mhi,chan = <107>;
+			mhi,hw-ev;
+			mhi,client-manage;
+			mhi,offload;
+		};
+
+		mhi_event@12 {
+			mhi,chan = <108>;
+			mhi,hw-ev;
+			mhi,client-manage;
+			mhi,offload;
+		};
+
+		mhi_event@13 {
+			mhi,chan = <109>;
+			mhi,hw-ev;
+		};
+
+		mhi_event@14 {
+			mhi,chan = <110>;
+			mhi,hw-ev;
+		};
+	};
+
 	mhi_devices {
 		mhi_qrtr {
 			qcom,net-id = <3>;
@@ -157,7 +221,7 @@
 
 		/* SVS2 */
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_GEM_NOC_SF
-			150000 1590000>,
+			150000 750000>,
 		<MSM_BUS_MASTER_SNOC_SF_MEM_NOC MSM_BUS_SLAVE_LLCC
 			150000 4789750>,
 		<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0 150000 1800000>,
@@ -167,7 +231,7 @@
 
 		/* SVS */
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_GEM_NOC_SF
-			150000 3180000>,
+			150000 1500000>,
 		<MSM_BUS_MASTER_SNOC_SF_MEM_NOC MSM_BUS_SLAVE_LLCC
 			150000 7429000>,
 		<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0 625000 3070000>,
@@ -177,7 +241,7 @@
 
 		/* NOMINAL */
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_GEM_NOC_SF
-			150000 6413000>,
+			150000 3000000>,
 		<MSM_BUS_MASTER_SNOC_SF_MEM_NOC MSM_BUS_SLAVE_LLCC
 			150000 8797500>,
 		<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0 1250000 6220000>,
@@ -187,7 +251,7 @@
 
 		/* TURBO */
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_GEM_NOC_SF
-			150000 8480000>,
+			150000 4000000>,
 		<MSM_BUS_MASTER_SNOC_SF_MEM_NOC MSM_BUS_SLAVE_LLCC
 			150000 15640000>,
 		<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0 2000000 7219000>,

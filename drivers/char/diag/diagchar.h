@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -142,6 +142,7 @@
 #define DIAG_GET_TIME_API	0x21B
 #define DIAG_SET_TIME_API	0x21C
 #define DIAG_GET_DIAG_ID	0x222
+#define DIAG_QUERY_TRANSPORT	0x223
 #define DIAG_SWITCH_COMMAND	0x081B
 #define DIAG_BUFFERING_MODE	0x080C
 
@@ -209,6 +210,11 @@
 #define DEFAULT_LOW_WM_VAL	15
 #define DEFAULT_HIGH_WM_VAL	85
 
+#define HDLC_CTXT		1
+#define NON_HDLC_CTXT	2
+
+#define PKT_PROCESS_TIMEOUT		200
+
 #define TYPE_DATA		0
 #define TYPE_CNTL		1
 #define TYPE_DCI		2
@@ -226,9 +232,9 @@
 #define NUM_PERIPHERALS		7
 #define APPS_DATA		(NUM_PERIPHERALS)
 
-#define UPD_WLAN		7
-#define UPD_AUDIO		8
-#define UPD_SENSORS		9
+#define UPD_WLAN		8
+#define UPD_AUDIO		9
+#define UPD_SENSORS		10
 #define NUM_UPD			3
 
 #define MAX_PERIPHERAL_UPD			2
@@ -312,8 +318,10 @@ do {						\
 #define DIAG_ID_UNKNOWN		0
 #define DIAG_ID_APPS		1
 
-#define DIAG_ROUTE_TO_USB 0
-#define DIAG_ROUTE_TO_PCIE 1
+#define DIAG_ROUTE_TO_UART	1
+#define DIAG_ROUTE_TO_USB	2
+#define DIAG_ROUTE_TO_PCIE	3
+
 /* List of remote processor supported */
 enum remote_procs {
 	MDM = 1,
