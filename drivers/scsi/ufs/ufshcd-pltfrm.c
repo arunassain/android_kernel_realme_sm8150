@@ -588,6 +588,7 @@ int ufshcd_pltfrm_init(struct platform_device *pdev,
 #endif /* VENDOR_EDIT */
 
 	return 0;
+
 dealloc_host:
 	ufshcd_dealloc_host(hba);
 out:
