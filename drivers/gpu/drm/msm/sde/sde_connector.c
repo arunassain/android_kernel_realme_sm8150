@@ -762,7 +762,7 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 					set_oppo_display_scene(OPPO_DISPLAY_NORMAL_SCENE);
 				}
 			} else if (oppo_display_get_hbm_mode()) {
-				/* Do nothing to skip hbm off */
+				sde_crtc_set_onscreenfinger_defer_sync(c_conn->encoder->crtc->state, true);
 			} else if(OPPO_DISPLAY_AOD_SCENE == get_oppo_display_scene()) {
 				rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_AOD_HBM_OFF);
 			} else {
