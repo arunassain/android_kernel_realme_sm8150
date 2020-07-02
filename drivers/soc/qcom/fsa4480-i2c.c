@@ -426,7 +426,7 @@ static int fsa4480_parse_dt(struct fsa4480_priv *fsa_priv,
     struct device_node *dNode = dev->of_node;
     int ret = 0;
 
-    if (dNode == NULL)
+    	if (dNode == NULL)
         return -ENODEV;
 
 	if (!fsa_priv) {
