@@ -14069,13 +14069,6 @@ static ssize_t wlan_hdd_state_ctrl_param_write(struct file *filp,
 		goto exit;
 	}
 
-	if (!hdd_loaded) {
-		if (hdd_driver_load()) {
-			pr_err("%s: Failed to init hdd module\n", __func__);
-			goto exit;
-		}
-	}
-
 	if (!cds_is_driver_loaded() || cds_is_driver_recovering()) {
 		init_completion(&wlan_start_comp);
 		rc = wait_for_completion_timeout(&wlan_start_comp,
