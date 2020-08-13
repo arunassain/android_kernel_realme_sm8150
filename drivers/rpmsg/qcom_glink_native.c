@@ -1988,7 +1988,7 @@ struct qcom_glink *qcom_glink_native_probe(struct device *dev,
 //Nanwei.Deng@BSP.Power.Basic, 2019/05/30 add for RM_TAG_POWER_DEBUG
 	ret = devm_request_irq(dev, irq,
 			       qcom_glink_native_intr,
-			       IRQF_NO_SUSPEND | IRQF_SHARED,
+			       IRQF_SHARED,
 			       "glink-native", glink);
 #else
 	if(glink_native_irq_index < GLINK_NATIVE_IRQ_NUM_MAX){
@@ -2008,6 +2008,9 @@ struct qcom_glink *qcom_glink_native_probe(struct device *dev,
 	}
 
 	glink->irq = irq;
+	ret = enable_irq_wake(glink->irq);
+	if (ret)
+		dev_err(dev, "failed to set irq wake\n");
 
 	size = of_property_count_u32_elems(dev->of_node, "cpu-affinity");
 	if (size > 0) {

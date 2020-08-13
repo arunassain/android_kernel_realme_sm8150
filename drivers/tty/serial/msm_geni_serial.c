@@ -120,7 +120,7 @@
 #define UART_CORE2X_VOTE	(5000)
 #define UART_CONSOLE_CORE2X_VOTE (960)
 
-#define WAKEBYTE_TIMEOUT_MSEC	(2000)
+#define WAKEBYTE_TIMEOUT_MSEC	(100)
 #define WAIT_XFER_MAX_ITER	(2)
 #define WAIT_XFER_MAX_TIMEOUT_US	(10000)
 #define WAIT_XFER_MIN_TIMEOUT_US	(9000)
@@ -185,6 +185,7 @@ struct msm_geni_serial_port {
 	struct msm_geni_serial_ver_info ver_info;
 	u32 cur_tx_remaining;
 	bool startup_in_progress;
+	struct mutex ioctl_mutex;
 };
 
 static const struct uart_ops msm_geni_serial_pops;
@@ -426,24 +427,28 @@ static int vote_clock_off(struct uart_port *uport)
 static int msm_geni_serial_ioctl(struct uart_port *uport, unsigned int cmd,
 						unsigned long arg)
 {
-	int ret = -ENOIOCTLCMD;
+	struct msm_geni_serial_port *port = GET_DEV_PORT(uport);
+	int ret;
+
+	mutex_lock(&port->ioctl_mutex);
 
 	switch (cmd) {
-	case TIOCPMGET: {
+	case TIOCPMGET:
 		ret = vote_clock_on(uport);
 		break;
-	}
-	case TIOCPMPUT: {
+	case TIOCPMPUT:
 		ret = vote_clock_off(uport);
 		break;
-	}
-	case TIOCPMACT: {
+	case TIOCPMACT:
 		ret = !pm_runtime_status_suspended(uport->dev);
 		break;
-	}
 	default:
+		ret = -ENOIOCTLCMD;
 		break;
 	}
+
+	mutex_unlock(&port->ioctl_mutex);
+
 	return ret;
 }
 
@@ -1811,11 +1816,6 @@ static void msm_geni_serial_shutdown(struct uart_port *uport)
 	unsigned long flags;
 	int ret;
 
-	if (!uart_console(uport)) {
-		msm_geni_serial_power_on(uport);
-		wait_for_transfers_inflight(uport);
-	}
-
 	disable_irq(uport->irq);
 	free_irq(uport->irq, uport);
 	spin_lock_irqsave(&uport->lock, flags);
@@ -3152,6 +3152,7 @@ static int __init msm_geni_serial_init(void)
 		msm_geni_serial_ports[i].uport.ops = &msm_geni_serial_pops;
 		msm_geni_serial_ports[i].uport.flags = UPF_BOOT_AUTOCONF;
 		msm_geni_serial_ports[i].uport.line = i;
+		mutex_init(&msm_geni_serial_ports[i].ioctl_mutex);
 	}
 
 	for (i = 0; i < GENI_UART_CONS_PORTS; i++) {
@@ -3159,6 +3160,7 @@ static int __init msm_geni_serial_init(void)
 		msm_geni_console_port.uport.ops = &msm_geni_console_pops;
 		msm_geni_console_port.uport.flags = UPF_BOOT_AUTOCONF;
 		msm_geni_console_port.uport.line = i;
+		mutex_init(&msm_geni_console_port.ioctl_mutex);
 	}
 #ifndef VENDOR_EDIT
 //Nanwei.Deng@BSP.CHG.Basic 2018/05/01 add for console
