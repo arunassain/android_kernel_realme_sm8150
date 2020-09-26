@@ -217,15 +217,13 @@ static int of_thermal_set_trips(struct thermal_zone_device *tz,
 		return -EINVAL;
 
 	mutex_lock(&data->senps->lock);
-	if (data->mode == THERMAL_DEVICE_DISABLED)
-		goto set_trips_exit;
 	of_thermal_aggregate_trip_types(tz, GENMASK(THERMAL_TRIP_CRITICAL, 0),
 					&low, &high);
 	data->senps->trip_low = low;
 	data->senps->trip_high = high;
 	ret = data->senps->ops->set_trips(data->senps->sensor_data,
 					  low, high);
-set_trips_exit:
+
 	mutex_unlock(&data->senps->lock);
 	return ret;
 }
@@ -587,6 +585,46 @@ static int of_thermal_aggregate_trip_types(struct thermal_zone_device *tz,
 	*low = min;
 
 	return 0;
+}
+
+static bool of_thermal_is_trips_triggered(struct thermal_zone_device *tz,
+		int temp)
+{
+	int tt, th, trip, last_temp;
+	struct __thermal_zone *data = tz->devdata;
+	bool triggered = false;
+
+	mutex_lock(&tz->lock);
+	last_temp = tz->temperature;
+	for (trip = 0; trip < data->ntrips; trip++) {
+
+		if (!tz->tzp->tracks_low) {
+			tt = data->trips[trip].temperature;
+			if (temp >= tt && last_temp < tt) {
+				triggered = true;
+				break;
+			}
+			th = tt - data->trips[trip].hysteresis;
+			if (temp <= th && last_temp > th) {
+				triggered = true;
+				break;
+			}
+		} else {
+			tt = data->trips[trip].temperature;
+			if (temp <= tt && last_temp > tt) {
+				triggered = true;
+				break;
+			}
+			th = tt + data->trips[trip].hysteresis;
+			if (temp >= th && last_temp < th) {
+				triggered = true;
+				break;
+			}
+		}
+	}
+	mutex_unlock(&tz->lock);
+
+	return triggered;
 }
 
 /*
